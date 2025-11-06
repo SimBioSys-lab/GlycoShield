@@ -1,0 +1,6 @@
+[submodule "Ensemble-Modelling"]
+	path = Ensemble-Modelling
+	url = https://github.com/Naveen-R-M/Ensemble-Modelling.git
+[submodule "GEF"]
+	path = GEF
+	url = https://github.com/Naveen-R-M/GEF.git
