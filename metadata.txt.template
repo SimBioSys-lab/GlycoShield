@@ -1,0 +1,27 @@
+# GlycoShield Pipeline Metadata File
+# ===================================
+# This file contains metadata required for pipeline execution.
+# Place this file as "metadata.txt" in your input folder alongside your model subdirectories.
+#
+# Format: KEY=VALUE (no spaces around =)
+# Lines starting with # are comments and will be ignored.
+
+# Required Fields
+# ---------------
+
+# User identifier (typically your username)
+USER_ID=your_username
+
+# Email address for notifications
+EMAIL=your.email@example.com
+
+# Job name (descriptive name for this analysis)
+JOB_NAME=my_analysis_job
+
+# Optional Fields
+# ---------------
+# You can add additional metadata fields here as needed for future enhancements.
+# Example:
+# DESCRIPTION=Spike protein glycosylation analysis
+# PROTEIN_TYPE=viral_glycoprotein
+# SUBMISSION_DATE=2024-11-29

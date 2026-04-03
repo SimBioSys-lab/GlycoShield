@@ -1,31 +1,87 @@
-*.log
+# ============================================
+# GlycoShield .gitignore
+# ============================================
+
+# --- Data directories (large, per-run) ---
 inputs/
 outputs/
+logs/
+
+# --- Environment & secrets ---
+.env
+!.env.example
+
+# --- Python ---
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
 .Python
+*.egg-info/
+*.egg
+dist/
+build/
+
+# --- Virtual environments ---
 env/
 venv/
 ENV/
-env.bak/
-venv.bak/
-.idea/
-.vscode/
-.DS_Store
-.ipynb_checkpoints
-*.sqlite3
-*.db
-*.bak
-*.swp
+.venv/
+
+# --- Temp & intermediate files ---
 *.tmp
+*.swp
+*.swo
+*~
+*.bak
+*.bak2
 *.old
 *.orig
 *.rej
+temp.pdb
+_temp_*
+*.stl
+
+# --- Backup files (timestamped) ---
+*.backup_*
+
+# --- OS files ---
+.DS_Store
+Thumbs.db
+
+# --- IDE ---
+.idea/
+.vscode/
+*.code-workspace
+.ipynb_checkpoints/
+
+# --- SLURM output (should go to logs/) ---
+slurm-*.out
+slurm-*.err
+
+# --- Test artifacts ---
+test_before_cleanup.sh
+cleanup.sh
+install_log.txt
+
+# --- Archives ---
+*.zip
+*.tar.gz
+*.tar.bz2
+*.7z
+
+# --- Compiled/binary ---
 *.class
 *.jar
 *.war
 *.ear
-*.zip
-*.tar.gz
+*.so
+*.dylib
+*.o
+
+# --- Databases ---
+*.sqlite3
+*.db
+
+# --- Vendored libs (track separately if needed) ---
+# lib/

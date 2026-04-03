@@ -25,14 +25,55 @@ try_source_env "$SCRIPT_DIR/.env" || true
 # ------------------------------
 # args
 # ------------------------------
-if [[ $# -ne 4 ]]; then
-  echo "Usage: $0 <FOLDER_PATH> <USER_ID> <EMAIL> <NAME>"
+if [[ $# -ne 1 ]]; then
+  echo "Usage: $0 <FOLDER_PATH>"
+  echo ""
+  echo "The FOLDER_PATH must contain a metadata.txt file with:"
+  echo "  USER_ID=<user_identifier>"
+  echo "  EMAIL=<user_email>"
+  echo "  JOB_NAME=<job_name>"
   exit 1
 fi
 FOLDER_PATH="$1"
-USER_ID="$2"
-EMAIL="$3"
-NAME="$4"
+
+# ------------------------------
+# METADATA LOADING
+# ------------------------------
+METADATA_FILE="${FOLDER_PATH}/metadata.txt"
+
+if [[ ! -f "$METADATA_FILE" ]]; then
+  echo "Error: metadata.txt not found in $FOLDER_PATH"
+  exit 1
+fi
+
+# Function to read metadata
+read_metadata() {
+  local key="$1"
+  local value=$(grep "^${key}=" "$METADATA_FILE" | cut -d'=' -f2- | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  echo "$value"
+}
+
+# Load metadata
+USER_ID=$(read_metadata "USER_ID")
+EMAIL=$(read_metadata "EMAIL")
+NAME=$(read_metadata "JOB_NAME")
+
+# Validate metadata
+if [[ -z "$USER_ID" ]]; then
+  echo "Error: USER_ID not found in metadata.txt"
+  exit 1
+fi
+
+
+if [[ -z "$NAME" ]]; then
+  echo "Error: JOB_NAME not found in metadata.txt"
+  exit 1
+fi
+
+echo "Loaded metadata from $METADATA_FILE"
+echo "  USER_ID: $USER_ID"
+echo "  EMAIL: $EMAIL"
+echo "  JOB_NAME: $NAME"
 
 try_source_env "$FOLDER_PATH/.env" || true
 try_source_env "$(dirname "$FOLDER_PATH")/.env" || true

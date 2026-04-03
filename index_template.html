@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Index of {{FOLDER_NAME}}</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/ngl@2.0.0-dev.37/dist/ngl.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+
+    <style>
+        :root { --primary-color: #0366d6; --bg-color: #f4f6f8; --text-color: #24292e; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 40px; max-width: 1000px; margin: 0 auto; background-color: var(--bg-color); color: var(--text-color); }
+        h1 { border-bottom: 2px solid #eaecef; padding-bottom: .5em; margin-bottom: 1em; font-weight: 500; }
+        
+        /* File List Styles */
+        .file-list { background: white; border: 1px solid #e1e4e8; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .file-item { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; border-bottom: 1px solid #eaecef; transition: background 0.2s; }
+        .file-item:last-child { border-bottom: none; }
+        .file-item:hover { background-color: #f8fafe; }
+        .file-icon { margin-right: 12px; font-size: 20px; }
+        .file-name { font-weight: 600; font-size: 16px; color: var(--primary-color); text-decoration: none; flex-grow: 1; }
+        .file-name:hover { text-decoration: underline; }
+        
+        /* Buttons */
+        .actions { display: flex; gap: 12px; font-size: 14px; align-items: center; }
+        .btn { text-decoration: none; padding: 8px 16px; border-radius: 6px; border: 1px solid rgba(27,31,35,0.15); background-color: #f6f8fa; color: var(--text-color); cursor: pointer; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 6px; }
+        .btn:hover { background-color: #edeff2; border-color: rgba(27,31,35,0.2); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        
+        /* Special Button Colors */
+        .btn-pdb { color: #ffffff; background: linear-gradient(180deg, #2ea44f 0%, #22863a 100%); border-color: rgba(27,31,35,0.15); }
+        .btn-pdb:hover { background: linear-gradient(180deg, #2c974b 0%, #1f7a34 100%); border-color: rgba(27,31,35,0.2); }
+        .btn-csv { color: #ffffff; background: linear-gradient(180deg, #0366d6 0%, #0250a8 100%); border-color: rgba(27,31,35,0.15); }
+        .btn-csv:hover { background: linear-gradient(180deg, #035bbd 0%, #024591 100%); }
+
+        .empty-msg { padding: 40px; text-align: center; color: #6a737d; font-style: italic; }
+        .footer { margin-top: 40px; font-size: 13px; color: #6a737d; text-align: center; }
+
+        /* --- MODALS --- */
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden; background-color: rgba(0,0,0,0.75); backdrop-filter: blur(5px); }
+        .modal-content { background-color: #fff; margin: 2vh auto; padding: 0; border: none; width: 90%; max-width: 1100px; height: 90vh; border-radius: 12px; position: relative; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); display: flex; flex-direction: column; }
+        .modal-header { padding: 16px 24px; border-bottom: 1px solid #eaecef; display: flex; justify-content: space-between; align-items: center; background: #f9fafb; border-radius: 12px 12px 0 0; }
+        .modal-header h2 { margin: 0; font-size: 18px; font-weight: 600; color: #333; }
+        .close-icon { color: #aaa; font-size: 28px; font-weight: bold; cursor: pointer; line-height: 1; }
+        .close-icon:hover { color: #333; }
+        
+        /* NGL Viewport */
+        #viewport { flex-grow: 1; width: 100%; background: white; }
+        
+        /* CSV Table Styles */
+        .csv-container { flex-grow: 1; overflow: auto; padding: 20px; }
+        table.csv-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        table.csv-table th, table.csv-table td { border: 1px solid #dfe2e5; padding: 8px 12px; text-align: left; }
+        table.csv-table th { background-color: #f6f8fa; font-weight: 600; position: sticky; top: 0; }
+        table.csv-table tr:nth-child(even) { background-color: #f9f9f9; }
+        table.csv-table tr:hover { background-color: #f1f8ff; }
+
+        /* Loaders */
+        #loader { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 2002; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <h1>📂 Index of /{{FOLDER_NAME}}</h1>
+    
+    <div class="file-list">
+        {{FILE_LIST}}
+    </div>
+    
+    <div id="nglModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="structureName">Protein Structure</h2>
+                <span class="close-icon" onclick="closeModal('nglModal')">&times;</span>
+            </div>
+            <div id="loader"><div class="spinner"></div></div>
+            <div id="viewport"></div>
+        </div>
+    </div>
+
+    <div id="csvModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="csvName">Data Table</h2>
+                <span class="close-icon" onclick="closeModal('csvModal')">&times;</span>
+            </div>
+            <div class="csv-container" id="csvContent">
+                </div>
+        </div>
+    </div>
+
+    <div class="footer">Generated by GlycoMap Engine on {{TIMESTAMP}}</div>
+
+    <script>
+        var stage;
+
+        // --- VISUALIZATION LOGIC ---
+        function viewPDB(url, filename) {
+            document.getElementById('nglModal').style.display = "block";
+            document.getElementById('loader').style.display = "block";
+            document.getElementById('structureName').innerText = filename;
+            
+            if (!stage) {
+                stage = new NGL.Stage("viewport", { backgroundColor: "white" });
+                window.addEventListener( "resize", function(){ stage.handleResize(); }, false );
+            } else {
+                stage.removeAllComponents();
+            }
+
+            stage.loadFile(url, { ext: "pdb" }).then(function (o) {
+                o.addRepresentation("cartoon", { colorScheme: "residueindex", aspectRatio: 3.0, quality: "high" });
+                o.addRepresentation("ball+stick", { sele: "ligand or hetero", colorScheme: "element", radiusScale: 2.0 });
+                o.autoView();
+                stage.setSpin(true);
+                document.getElementById('loader').style.display = "none";
+            }).catch(function(err) {
+                console.error(err);
+                document.getElementById('loader').style.display = "none";
+            });
+        }
+
+        // --- CSV LOGIC ---
+        function viewCSV(url, filename) {
+            document.getElementById('csvModal').style.display = "block";
+            document.getElementById('csvName').innerText = filename;
+            var container = document.getElementById('csvContent');
+            container.innerHTML = '<div style="text-align:center; padding:20px;">Loading data...</div>';
+
+            Papa.parse(url, {
+                download: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    var data = results.data;
+                    if(data.length === 0) {
+                        container.innerHTML = "Empty CSV file.";
+                        return;
+                    }
+
+                    var tableHTML = '<table class="csv-table"><thead><tr>';
+                    
+                    // Header (First Row)
+                    data[0].forEach(cell => {
+                        tableHTML += `<th>${cell}</th>`;
+                    });
+                    tableHTML += '</tr></thead><tbody>';
+
+                    // Data Rows (Remaining)
+                    for (var i = 1; i < data.length; i++) {
+                        tableHTML += '<tr>';
+                        data[i].forEach(cell => {
+                            tableHTML += `<td>${cell}</td>`;
+                        });
+                        tableHTML += '</tr>';
+                    }
+                    tableHTML += '</tbody></table>';
+                    container.innerHTML = tableHTML;
+                },
+                error: function(err) {
+                    container.innerHTML = `<div style="color:red">Error parsing CSV: ${err}</div>`;
+                }
+            });
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = "none";
+            if (modalId === 'nglModal' && stage) {
+                stage.setSpin(false);
+                stage.removeAllComponents();
+            }
+        }
+
+        window.onclick = function(event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.style.display = "none";
+                if(stage) stage.setSpin(false);
+            }
+        }
+    </script>
+</body>
+</html>
