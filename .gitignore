@@ -84,4 +84,4 @@ install_log.txt
 *.db
 
 # --- Vendored libs (track separately if needed) ---
-# lib/
+lib/
