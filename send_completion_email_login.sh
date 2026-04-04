@@ -2,6 +2,9 @@
 # Send completion email from login node
 # This is called by the background monitor (wait_and_email.sh)
 #
+# UPDATED: Stages only user-facing result files before uploading to Azure.
+# Full outputs remain on disk; only curated results are shared.
+#
 # IMPORTANT: We intentionally do NOT use set -e here.
 # Each step is independently error-handled so that a failure in one step
 # (e.g., Azure upload) does not prevent subsequent steps (e.g., email) from running.
@@ -70,99 +73,203 @@ echo ""
 # Define paths
 AZURE_SCRIPT="${SCRIPT_DIR}/azure_glycoshield.py"
 OUTPUT_BASE="${SCRIPT_DIR}/outputs/${USER_ID}"
-INPUTS_BASE="${SCRIPT_DIR}/inputs/${USER_ID}"
 LOGS_BASE="${SCRIPT_DIR}/logs/${USER_ID}"
 
 # Default sharing link (fallback)
 SHARING_LINK="https://glacierstorage01.blob.core.windows.net/glacier/${USER_ID}/index.html"
 
 # ============================================================
-# Step 1: Upload outputs folder to Azure
+# Step 1: Stage only user-facing result files
 # ============================================================
-echo "Step 1: Uploading outputs folder to Azure..."
+echo "Step 1: Staging user-facing result files..."
 
-if [[ -f "$AZURE_SCRIPT" ]] && [[ -d "$OUTPUT_BASE" ]]; then
+STAGING_DIR="/tmp/glacier_share_${USER_ID}_$$"
+mkdir -p "$STAGING_DIR"
+
+stage_count=0
+stage_errors=0
+
+# Iterate over each model folder in outputs
+if [[ -d "$OUTPUT_BASE" ]]; then
+  for MODEL_DIR in "$OUTPUT_BASE"/*/; do
+    MODEL_NAME=$(basename "$MODEL_DIR")
+    STAGE_MODEL="$STAGING_DIR/$MODEL_NAME"
+    mkdir -p "$STAGE_MODEL"
+
+    echo "  Staging model: $MODEL_NAME"
+
+    # (i) output_aligned.pdb — check both old (root) and new (ensemble/) layouts
+    for pdb_path in "$MODEL_DIR/output_aligned.pdb" "$MODEL_DIR/ensemble/output_aligned.pdb"; do
+      if [[ -f "$pdb_path" ]]; then
+        cp "$pdb_path" "$STAGE_MODEL/output_aligned.pdb"
+        echo "    ✓ output_aligned.pdb"
+        ((stage_count++))
+        break
+      fi
+    done
+
+    # (ii) GEF CSV — check both old (root) and new (gef/) layouts
+    for csv_path in "$MODEL_DIR/processed_GEF_output.csv" "$MODEL_DIR/gef/processed_GEF_output.csv"; do
+      if [[ -f "$csv_path" ]]; then
+        mkdir -p "$STAGE_MODEL/gef"
+        cp "$csv_path" "$STAGE_MODEL/gef/processed_GEF_output.csv"
+        echo "    ✓ gef/processed_GEF_output.csv"
+        ((stage_count++))
+        break
+      fi
+    done
+
+    # (iii) GEF single-frame PDB
+    for pdb_path in "$MODEL_DIR/gef_single_frame.pdb" "$MODEL_DIR/gef/gef_single_frame.pdb"; do
+      if [[ -f "$pdb_path" ]]; then
+        mkdir -p "$STAGE_MODEL/gef"
+        cp "$pdb_path" "$STAGE_MODEL/gef/gef_single_frame.pdb"
+        echo "    ✓ gef/gef_single_frame.pdb"
+        ((stage_count++))
+        break
+      fi
+    done
+
+    # (iv) GEF PNG plots — check both layouts
+    gef_pngs_found=0
+    for gef_dir in "$MODEL_DIR" "$MODEL_DIR/gef"; do
+      if ls "$gef_dir"/gef_data_range_*.png 1>/dev/null 2>&1; then
+        mkdir -p "$STAGE_MODEL/gef"
+        cp "$gef_dir"/gef_data_range_*.png "$STAGE_MODEL/gef/"
+        gef_pngs_found=$(ls "$STAGE_MODEL/gef"/gef_data_range_*.png 2>/dev/null | wc -l)
+        echo "    ✓ gef/gef_data_range_*.png ($gef_pngs_found files)"
+        stage_count=$((stage_count + gef_pngs_found))
+        break
+      fi
+    done
+
+    # (v) Madison/interglycan PNGs and CSVs — check both old and new dir names
+    for madison_dir in "$MODEL_DIR/interglycan_interactions" "$MODEL_DIR/madison_analysis"; do
+      if [[ -d "$madison_dir" ]]; then
+        mkdir -p "$STAGE_MODEL/interglycan_interactions"
+        madison_staged=0
+
+        # CSVs
+        for f in "$madison_dir"/*adjacency_matrix*.csv "$madison_dir"/aggregated_*.csv; do
+          if [[ -f "$f" ]]; then
+            cp "$f" "$STAGE_MODEL/interglycan_interactions/"
+            ((madison_staged++))
+            ((stage_count++))
+          fi
+        done
+
+        # PNGs
+        for f in "$madison_dir"/*.png; do
+          if [[ -f "$f" ]]; then
+            cp "$f" "$STAGE_MODEL/interglycan_interactions/"
+            ((madison_staged++))
+            ((stage_count++))
+          fi
+        done
+
+        if [[ $madison_staged -gt 0 ]]; then
+          echo "    ✓ interglycan_interactions/ ($madison_staged files)"
+        fi
+        break
+      fi
+    done
+
+    # (vi) Burgly PNGs and CSVs — check both old and new dir names
+    for burgly_dir in "$MODEL_DIR/burgly" "$MODEL_DIR/burgly_analysis"; do
+      if [[ -d "$burgly_dir" ]]; then
+        mkdir -p "$STAGE_MODEL/burgly"
+        burgly_staged=0
+
+        # CSVs (glycan_depth_CAR*.csv)
+        for f in "$burgly_dir"/glycan_depth_CAR*.csv; do
+          if [[ -f "$f" ]]; then
+            cp "$f" "$STAGE_MODEL/burgly/"
+            ((burgly_staged++))
+            ((stage_count++))
+          fi
+        done
+
+        # Heatmap PNG
+        if [[ -f "$burgly_dir/glycan_depth_heatmap.png" ]]; then
+          cp "$burgly_dir/glycan_depth_heatmap.png" "$STAGE_MODEL/burgly/"
+          ((burgly_staged++))
+          ((stage_count++))
+        fi
+
+        if [[ $burgly_staged -gt 0 ]]; then
+          echo "    ✓ burgly/ ($burgly_staged files)"
+        fi
+        break
+      fi
+    done
+
+  done
+
+  echo ""
+  echo "  Staged $stage_count files total to: $STAGING_DIR"
+else
+  echo "⚠ Output directory not found: $OUTPUT_BASE"
+  OVERALL_STATUS=1
+fi
+
+echo ""
+
+# ============================================================
+# Step 2: Upload staged results to Azure
+# ============================================================
+echo "Step 2: Uploading staged results to Azure..."
+
+if [[ -f "$AZURE_SCRIPT" ]] && [[ -d "$STAGING_DIR" ]] && [[ $stage_count -gt 0 ]]; then
   UPLOAD_EXIT=0
-  UPLOAD_OUTPUT=$(python3 "$AZURE_SCRIPT" upload-files "$USER_ID" "$OUTPUT_BASE" 2>&1) || UPLOAD_EXIT=$?
+  UPLOAD_OUTPUT=$(python3 "$AZURE_SCRIPT" upload-files "$USER_ID" "$STAGING_DIR" 2>&1) || UPLOAD_EXIT=$?
   echo "$UPLOAD_OUTPUT"
-  
+
   if [[ $UPLOAD_EXIT -ne 0 ]]; then
     echo "⚠ Azure upload exited with code $UPLOAD_EXIT (continuing with remaining steps)"
     OVERALL_STATUS=1
   fi
-  
-  # Extract Azure URL - use || true to prevent pipefail from killing the script
+
+  # Extract Azure URL
   AZURE_URL=$(echo "$UPLOAD_OUTPUT" | grep -oP "https://[^\s]+" | tail -1 || true)
-  
+
   if [[ -n "$AZURE_URL" ]]; then
-    echo "✓ Outputs uploaded to: $AZURE_URL"
+    echo "✓ Staged results uploaded to: $AZURE_URL"
     SHARING_LINK="$AZURE_URL"
   else
     echo "⚠ Azure upload completed but URL not extracted, using fallback URL"
   fi
 else
-  echo "⚠ Azure script or output directory not found"
-  echo "   Azure script: $AZURE_SCRIPT (exists: $(test -f "$AZURE_SCRIPT" && echo yes || echo no))"
-  echo "   Output dir: $OUTPUT_BASE (exists: $(test -d "$OUTPUT_BASE" && echo yes || echo no))"
+  echo "⚠ Azure script or staging directory not found, or nothing to upload"
   OVERALL_STATUS=1
 fi
 
-# ============================================================
-# Step 2: Upload inputs folder to Azure (user-uploaded files only)
-# ============================================================
-echo ""
-echo "Step 2: Uploading user input files to Azure..."
-
-if [[ -d "$INPUTS_BASE" ]]; then
-  python3 << PYEOF || { echo "⚠ Input upload failed (continuing)"; OVERALL_STATUS=1; }
-import os
-import sys
-sys.path.insert(0, '${SCRIPT_DIR}')
-from dotenv import load_dotenv
-load_dotenv('${SCRIPT_DIR}/.env')
-from azure.storage.blob import BlobServiceClient
-
-conn_str = os.getenv('AZURE_CONNECTION_STRING')
-client = BlobServiceClient.from_connection_string(conn_str)
-cont = client.get_container_client('glacier')
-
-user_id = '${USER_ID}'
-inputs_dir = '${INPUTS_BASE}'
-
-# Exclude AllosMod-generated files/folders
-EXCLUDE_PATTERNS = {'pred_dECALCrAS1000', 'qsub.sh', 'list', 'input.dat'}
-uploaded = 0
-
-for root, dirs, files in os.walk(inputs_dir):
-    # Skip AllosMod ensemble directories
-    dirs[:] = [d for d in dirs if d not in EXCLUDE_PATTERNS]
-    
-    for filename in files:
-        if filename.startswith('.') or filename in EXCLUDE_PATTERNS:
-            continue
-        local_path = os.path.join(root, filename)
-        relative_path = os.path.relpath(local_path, inputs_dir)
-        blob_path = f'{user_id}/inputs/{relative_path}'.replace('\\\\', '/')
-        
-        with open(local_path, 'rb') as data:
-            blob_client = cont.get_blob_client(blob_path)
-            blob_client.upload_blob(data, overwrite=True)
-        uploaded += 1
-
-print(f'✓ User input files uploaded ({uploaded} files)')
-PYEOF
-else
-  echo "⚠ Inputs folder not found at $INPUTS_BASE, skipping"
-fi
+# Clean up staging directory
+rm -rf "$STAGING_DIR"
+echo "✓ Staging directory cleaned up"
 
 # ============================================================
-# Step 3: Upload logs folder to Azure
+# Step 3: Upload AllosMod logs on failure (conditional)
 # ============================================================
 echo ""
-echo "Step 3: Uploading logs folder to Azure..."
+echo "Step 3: Checking for failed jobs (conditional log upload)..."
 
 if [[ -d "$LOGS_BASE" ]]; then
-  python3 << PYEOF || { echo "⚠ Logs upload failed (continuing)"; OVERALL_STATUS=1; }
+  # Check for any error indicators in log files
+  has_failures=false
+
+  for err_file in "$LOGS_BASE"/*/*.err "$LOGS_BASE"/*/*/*.err; do
+    if [[ -f "$err_file" ]] && [[ -s "$err_file" ]]; then
+      # Check if error file contains actual errors (not just warnings)
+      if grep -qiE "error|failed|fatal|traceback|exception" "$err_file" 2>/dev/null; then
+        has_failures=true
+        break
+      fi
+    fi
+  done
+
+  if [[ "$has_failures" == "true" ]]; then
+    echo "  ⚠ Failures detected — uploading logs for debugging..."
+    python3 << PYEOF || { echo "⚠ Log upload failed (continuing)"; OVERALL_STATUS=1; }
 import os
 import sys
 sys.path.insert(0, '${SCRIPT_DIR}')
@@ -185,20 +292,23 @@ for root, dirs, files in os.walk(logs_dir):
         local_path = os.path.join(root, filename)
         relative_path = os.path.relpath(local_path, logs_dir)
         blob_path = f'{user_id}/logs/{relative_path}'.replace('\\\\', '/')
-        
+
         with open(local_path, 'rb') as data:
             blob_client = cont.get_blob_client(blob_path)
             blob_client.upload_blob(data, overwrite=True)
         uploaded += 1
 
-print(f'✓ Logs folder uploaded ({uploaded} files)')
+print(f'✓ Logs uploaded for debugging ({uploaded} files)')
 PYEOF
+  else
+    echo "  ✓ No failures detected — skipping log upload"
+  fi
 else
-  echo "⚠ Logs folder not found at $LOGS_BASE, skipping"
+  echo "  ℹ No logs directory found, skipping"
 fi
 
 # ============================================================
-# Step 4: Regenerate the index to include all folders
+# Step 4: Regenerate the index to include all uploaded files
 # ============================================================
 echo ""
 echo "Step 4: Regenerating index page..."
@@ -207,8 +317,8 @@ INDEX_SCRIPT="${SCRIPT_DIR}/generate_azure_index.py"
 if [[ -f "$INDEX_SCRIPT" ]]; then
   INDEX_OUTPUT=$(python3 "$INDEX_SCRIPT" "$USER_ID" 2>&1) || { echo "⚠ Index generation failed (continuing)"; }
   echo "$INDEX_OUTPUT"
-  
-  # Update sharing link to the new index - use || true to prevent pipefail issues
+
+  # Update sharing link to the new index
   NEW_INDEX_URL=$(echo "$INDEX_OUTPUT" | grep -oP "https://[^\s]+" | tail -1 || true)
   if [[ -n "$NEW_INDEX_URL" ]]; then
     SHARING_LINK="$NEW_INDEX_URL"
@@ -232,17 +342,17 @@ else
 
   if [[ -f "$TRIGGER_EMAIL" ]]; then
     echo "Calling: python3 $TRIGGER_EMAIL completion $EMAIL $USER_ID $JOB_NAME $USER_NAME --download-link $SHARING_LINK"
-    
+
     python3 "$TRIGGER_EMAIL" completion "$EMAIL" "$USER_ID" "$JOB_NAME" "$USER_NAME" \
       --download-link "$SHARING_LINK" 2>&1
-    
+
     EMAIL_EXIT=$?
     if [[ $EMAIL_EXIT -eq 0 ]]; then
       echo "✓ Email sent to $EMAIL"
     else
       echo "⚠ Email sending failed with exit code: $EMAIL_EXIT"
       OVERALL_STATUS=1
-      
+
       # Retry once after a short delay
       echo "  Retrying email in 10 seconds..."
       sleep 10
